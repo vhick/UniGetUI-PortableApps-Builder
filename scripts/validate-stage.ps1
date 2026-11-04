@@ -11,17 +11,19 @@ Must (Test-Path "$Root/App/AppInfo/appinfo.ini" -PathType Leaf) 'Missing metadat
 Must (Test-Path "$Root/Other" -PathType Container) 'Missing Other'
 Must (Test-Path "$Root/Data" -PathType Container) 'Missing Data'
 Must (-not (Test-Path "$Root/App/UniGetUI/Settings")) 'Application runtime settings must not be shipped'
-Must (@(Get-ChildItem "$Root/Data" -Force).Count -eq 0) 'Shipping user Data is prohibited'
+# Only the PortableApps root Data directory is user-owned runtime storage.
+# Upstream resources such as App/UniGetUI/Assets/Data/Contributors.list
+# are legitimate application binaries/assets and MUST be packaged.
+$portableData = Join-Path (Resolve-Path -LiteralPath $Root).Path 'Data'
+Must (@(Get-ChildItem -LiteralPath $portableData -Force).Count -eq 0) 'Shipping user Data is prohibited'
 $ini = Get-Content "$Root/App/AppInfo/appinfo.ini" -Raw
 Must ($ini -match '(?m)^AppID=UniGetUIPortable-[a-zA-Z0-9_-]+\s*$') 'Wrong AppID'
 Must ($ini -match '(?m)^Start=UniGetUIPortable\.exe\s*$') 'Wrong start EXE'
 Must ($ini -match '(?m)^PackageVersion=\d+\.\d+\.\d+\.\d+\s*$') 'Invalid 4-component version'
 Must ($ini -match '(?m)^Type=PortableApps\.comFormat\s*$') 'Wrong portable format type'
 Must ($ini -match '(?m)^Version=3\.9\s*$') 'Wrong portable format version'
-$seen=@{}
 foreach($file in @(Get-Item $Root) + @(Get-ChildItem $Root -Recurse -Force)) {
   if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Unsafe reparse point $($file.FullName)" }
-  if($file.FullName -match '(?i)\\Data\\') { throw "Unexpected Data payload $($file.FullName)" }
 }
 foreach($exe in @("$Root/UniGetUIPortable.exe", "$Root/App/UniGetUI/UniGetUI.exe")) {
   $f=[IO.File]::OpenRead((Resolve-Path $exe).Path)

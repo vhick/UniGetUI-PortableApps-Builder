@@ -1,3 +1,7 @@
+## r4 stage validator reports `Unexpected Data payload` on `Assets\Data\Contributors.list`
+
+The official UniGetUI portable ZIP contains resources under `App\UniGetUI\Assets\Data`. r4 misclassified any directory named `Data` as personal user storage. r5 only requires `UniGetUIPortable\Data` to be empty in the staged release, retaining all official upstream resource files and empty folders. The Windows offline test `tests/test-stage-data-scope.ps1` prevents the same mistake from returning. Do not manually delete `Contributors.list` or other application assets.
+
 # Troubleshooting
 
 **Action does not show in GitHub:** Ensure `.github/workflows/build-portableapps.yml` is at the repository root, not inside an extra extracted directory. Commit and push with GitHub Desktop. Check Settings > Actions for repository policy.

@@ -1,4 +1,4 @@
-param([string]$Version = '', [string]$BuilderRevision = 'b4', [string]$PackageRevision = 'r1')
+param([string]$Version = '', [string]$BuilderRevision = 'b5', [string]$PackageRevision = 'r1')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'release-policy.ps1')

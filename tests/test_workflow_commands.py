@@ -35,11 +35,24 @@ class WorkflowCommandsTests(unittest.TestCase):
             r'(?m)^\s*run: python -m unittest discover[^\n]*\n\s+\./tests/test-release-policy\.ps1',
         )
 
-    def test_b4_revision_is_consistent(self):
-        self.assertIn('-BuilderRevision b4 -PackageRevision r1', self.workflow)
-        self.assertIn('_b4.zip', self.workflow)
-        self.assertIn('builder b4, independent NSIS r1', self.workflow)
+    def test_b5_revision_is_consistent(self):
+        self.assertIn('-BuilderRevision b5 -PackageRevision r1', self.workflow)
+        self.assertIn('_b5.zip', self.workflow)
+        self.assertIn('builder b5, independent NSIS r1', self.workflow)
         self.assertNotIn('builder b2, independent', self.workflow)
+
+    def test_root_data_scope_regression_is_run_before_upstream_download(self):
+        fixture = self.workflow.index('      - name: Offline PortableApps root Data scope regression tests')
+        resolve = self.workflow.index('      - name: Resolve stable release, upstream checksum')
+        self.assertLess(fixture, resolve)
+        self.assertIn('run: ./tests/test-stage-data-scope.ps1', self.workflow)
+
+    def test_validator_only_checks_portable_root_data(self):
+        code = (WORKFLOW.parents[2] / 'scripts' / 'validate-stage.ps1').read_text(encoding='utf-8')
+        self.assertIn("$portableData = Join-Path (Resolve-Path -LiteralPath $Root).Path 'Data'", code)
+        self.assertIn('Get-ChildItem -LiteralPath $portableData -Force', code)
+        self.assertNotIn('Unexpected Data payload', code)
+        self.assertNotIn('if($file.FullName -match', code)
 
     def test_gui_launcher_exit_code_is_checked_from_process_object(self):
         # NativeAOT GUI (WinExe) programs do not reliably set $LASTEXITCODE.

@@ -18,3 +18,7 @@ __pycache__/
 # GitHub generated packages
 *.paf.exe
 *.zip
+
+# Local regression test bytecode
+__pycache__/
+*.pyc

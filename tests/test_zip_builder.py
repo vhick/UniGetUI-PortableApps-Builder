@@ -22,12 +22,38 @@ class IndependentZipTests(unittest.TestCase):
             (info/'appinfo.ini').write_text('[Format]\nType=PortableApps.comFormat\n')
             (info/'appicon.ico').write_bytes(b'placeholder-fixture-icon')
             (source/'Build-Manifest.json').write_text('{}')
+            # UniGetUI ships resources under App/UniGetUI/Assets/Data.
+            upstream_assets = app/'Assets/Data'
+            upstream_assets.mkdir(parents=True, exist_ok=True)
+            (upstream_assets/'Contributors.list').write_text('official resource')
+            (upstream_assets/'empty/subtree').mkdir(parents=True)
             output = pathlib.Path(tmp) / 'dist' / 'result.zip'
             subprocess.run([sys.executable, str(SCRIPT), str(root), str(output)], check=True)
             with zipfile.ZipFile(output) as z:
                 self.assertIsNone(z.testzip())
                 self.assertIn('UniGetUIPortable/Data/', z.namelist())
                 self.assertIn('UniGetUIPortable/App/DefaultData/empty/nested/', z.namelist())
+                self.assertIn('UniGetUIPortable/App/UniGetUI/Assets/Data/Contributors.list', z.namelist())
+                self.assertIn('UniGetUIPortable/App/UniGetUI/Assets/Data/empty/subtree/', z.namelist())
+
+    def test_prevents_empty_user_data_directories_in_release(self):
+        # Empty nested folders under the portable root Data are still user data.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / 'UniGetUIPortable'
+            app = root / 'App/UniGetUI'
+            info = root / 'App/AppInfo'
+            source = root / 'Other/Source'
+            for folder in (app, info, source, root/'Data/empty/nested'):
+                folder.mkdir(parents=True, exist_ok=True)
+            (root/'UniGetUIPortable.exe').write_bytes(b'MZ')
+            (app/'UniGetUI.exe').write_bytes(b'MZ')
+            (info/'appinfo.ini').write_text('[Format]\nType=PortableApps.comFormat\n')
+            (info/'appicon.ico').write_bytes(b'fixture')
+            (source/'Build-Manifest.json').write_text('{}')
+            output = pathlib.Path(tmp) / 'result.zip'
+            result = subprocess.run([sys.executable, str(SCRIPT), str(root), str(output)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('user Data', result.stderr + result.stdout)
 
     def test_prevents_user_data_in_release(self):
         with tempfile.TemporaryDirectory() as tmp:
