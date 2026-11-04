@@ -35,10 +35,10 @@ class WorkflowCommandsTests(unittest.TestCase):
             r'(?m)^\s*run: python -m unittest discover[^\n]*\n\s+\./tests/test-release-policy\.ps1',
         )
 
-    def test_b6_revision_is_consistent(self):
-        self.assertIn('-BuilderRevision b6 -PackageRevision r1', self.workflow)
-        self.assertIn('_b6.zip', self.workflow)
-        self.assertIn('builder b6, independent NSIS r1', self.workflow)
+    def test_b7_revision_is_consistent(self):
+        self.assertIn('-BuilderRevision b7 -PackageRevision r1', self.workflow)
+        self.assertIn('_b7.zip', self.workflow)
+        self.assertIn('builder b7, independent NSIS r1', self.workflow)
         self.assertNotIn('builder b2, independent', self.workflow)
 
     def test_root_data_scope_regression_is_run_before_upstream_download(self):

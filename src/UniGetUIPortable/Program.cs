@@ -511,6 +511,7 @@ internal static class Program
 
     static bool PowerShellScopeSelfTest()
     {
+        string phase = "initialization";
         try
         {
             string t = Path.Combine(Path.GetTempPath(), "UniGetUIPortablePowerShellSelfTest-" + Guid.NewGuid().ToString("N"));
@@ -525,13 +526,20 @@ internal static class Program
                     ["LocalAppData_PSResourceGet"] = resource,
                     ["LocalAppData_PackageManagement"] = management
                 };
+                // Use strictly increasing timestamps, all in the past. The old
+                // r6 fixture future-dated the updated file by two seconds, then
+                // incorrectly expected a newly written (but older) crash file
+                // to overwrite it. The runtime correctly refused that data loss.
+                DateTime fixtureClock = DateTime.UtcNow;
                 // First launch: an absent root is eligible for session capture.
                 var newState = MakeScopeState("LocalAppData_PSResourceGet", resource);
                 if (newState.ExistedBefore || newState.SkipCapture) throw new Exception("Missing root treated as pre-existing");
                 Directory.CreateDirectory(Path.Combine(resource, "empty", "deep"));
                 File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "test-repositories");
+                File.SetLastWriteTimeUtc(Path.Combine(resource, "PSResourceRepository.xml"), fixtureClock.AddMinutes(-30));
                 var first = new Journal(Environment.MachineName, Environment.UserName,
                     DateTime.UtcNow, new List<ScopeState> { newState });
+                phase = "first session capture";
                 CaptureExternal(first, allowed);
                 string saved = Path.Combine(Guard, "External", "LocalAppData_PSResourceGet");
                 if (Directory.Exists(resource) || !File.Exists(Path.Combine(saved, "PSResourceRepository.xml")) ||
@@ -542,12 +550,14 @@ internal static class Program
                     DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
                 string journalPath = Path.Combine(Guard, "session-test.json");
                 SaveJournal(journalPath, next);
+                phase = "session rehydration";
                 next = RestoreSharedPowerShellScopes(next, journalPath, allowed);
                 if (File.ReadAllText(Path.Combine(resource, "PSResourceRepository.xml")) != "test-repositories" ||
                     !Directory.Exists(Path.Combine(resource, "empty", "deep")))
                     throw new Exception("Restoration lost PowerShell repository or empty folder");
                 File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "updated-repositories");
-                File.SetLastWriteTimeUtc(Path.Combine(resource, "PSResourceRepository.xml"), DateTime.UtcNow.AddSeconds(2));
+                File.SetLastWriteTimeUtc(Path.Combine(resource, "PSResourceRepository.xml"), fixtureClock.AddMinutes(-20));
+                phase = "updated session capture";
                 CaptureExternal(next, allowed);
                 if (Directory.Exists(resource) ||
                     File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "updated-repositories")
@@ -561,6 +571,7 @@ internal static class Program
                 var protectedSession = new Journal(Environment.MachineName, Environment.UserName,
                     DateTime.UtcNow, new List<ScopeState> { protectedState });
                 protectedSession = RestoreSharedPowerShellScopes(protectedSession, journalPath, allowed);
+                phase = "existing host data protection";
                 CaptureExternal(protectedSession, allowed);
                 if (File.ReadAllText(Path.Combine(resource, "PSResourceRepository.xml")) != "host-own-settings" ||
                     File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "updated-repositories")
@@ -572,6 +583,7 @@ internal static class Program
                 SaveJournal(journalPath, collision);
                 Directory.CreateDirectory(resource);
                 File.WriteAllText(Path.Combine(resource, "unrelated.txt"), "other-process");
+                phase = "concurrent root collision protection";
                 collision = RestoreSharedPowerShellScopes(collision, journalPath, allowed);
                 CaptureExternal(collision, allowed);
                 if (!File.Exists(Path.Combine(resource, "unrelated.txt")) || !collision.Scopes[0].SkipCapture)
@@ -586,6 +598,7 @@ internal static class Program
                     DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PackageManagement", management) });
                 Directory.CreateDirectory(Path.Combine(management, "ProviderAssemblies", "NuGet"));
                 File.WriteAllText(Path.Combine(management, "ProviderAssemblies", "NuGet", "provider.dll"), "fixture");
+                phase = "installed provider protection";
                 CaptureExternal(managementNew, allowed);
                 if (!File.Exists(Path.Combine(management, "ProviderAssemblies", "NuGet", "provider.dll")))
                     throw new Exception("Installed CurrentUser provider unexpectedly removed");
@@ -594,15 +607,38 @@ internal static class Program
                 var emptyManagement = new Journal(Environment.MachineName, Environment.UserName,
                     DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PackageManagement", management) });
                 Directory.CreateDirectory(Path.Combine(management, "cache", "nested", "empty"));
+                phase = "empty PackageManagement directory capture";
                 CaptureExternal(emptyManagement, allowed);
                 if (Directory.Exists(management) || !Directory.Exists(Path.Combine(Guard, "External", "LocalAppData_PackageManagement", "cache", "nested", "empty")))
                     throw new Exception("Empty PackageManagement folders not captured");
+                // Verify the protection policy independently: older, conflicting
+                // host content must stay on the host and never replace the newer
+                // saved portable copy. The copy-verification exception is expected.
+                phase = "older conflicting host data protection";
+                Directory.Delete(resource, true);
+                var olderConflict = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
+                Directory.CreateDirectory(resource);
+                string olderFile = Path.Combine(resource, "PSResourceRepository.xml");
+                File.WriteAllText(olderFile, "older-conflicting-host-state");
+                File.SetLastWriteTimeUtc(olderFile, fixtureClock.AddMinutes(-25));
+                bool refusedOlder = false;
+                try { CaptureExternal(olderConflict, allowed); }
+                catch (IOException) { refusedOlder = true; }
+                if (!refusedOlder || !File.Exists(olderFile) ||
+                    File.ReadAllText(olderFile) != "older-conflicting-host-state" ||
+                    File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "updated-repositories")
+                    throw new Exception("Older conflicting file was discarded or overwrote newer portable state");
                 // Crash recovery uses the same saved snapshot and capture routine.
+                // This source has a newer modification time than the last capture.
+                phase = "crash recovery";
                 Directory.Delete(resource, true);
                 var interrupted = new Journal(Environment.MachineName, Environment.UserName,
                     DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
                 Directory.CreateDirectory(resource);
-                File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "after-crash");
+                string crashFile = Path.Combine(resource, "PSResourceRepository.xml");
+                File.WriteAllText(crashFile, "after-crash");
+                File.SetLastWriteTimeUtc(crashFile, fixtureClock.AddMinutes(-10));
                 CaptureExternal(interrupted, allowed);
                 if (Directory.Exists(resource) || File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "after-crash")
                     throw new Exception("PowerShell trace crash recovery failed");
@@ -611,7 +647,7 @@ internal static class Program
             Console.WriteLine("PowerShell TraceGuard self-test PASS: capture, rehydration, host protection, collision, providers, empty folders, recovery");
             return true;
         }
-        catch (Exception ex) { Console.Error.WriteLine("PowerShell TraceGuard self-test FAIL: " + ex); return false; }
+        catch (Exception ex) { Console.Error.WriteLine("PowerShell TraceGuard self-test FAIL during " + phase + ": " + ex); return false; }
     }
 
     static bool SelfTest()

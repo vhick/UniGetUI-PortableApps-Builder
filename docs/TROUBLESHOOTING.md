@@ -45,3 +45,6 @@ The launcher uses Windows GUI subsystem (`OutputType=WinExe`), which does not re
 ## PowerShell folders under LocalAppData
 
 `PSResourceGet` and `PackageManagement` are shared Microsoft PowerShell storage, **not exclusive UniGetUI files**. In r6, a root that already exists at launcher startup is deliberately protected. New roots can be captured after app exit when their contents can be verified, except for installed PackageManagement provider assemblies. See `docs/R6-POWERSHELL-TRACEGUARD.md` and run `./scripts/report-powershell-state.ps1` for a read-only report. Never blindly delete a folder containing `ProviderAssemblies`, and do not redirect all of `%LOCALAPPDATA%` to PortableApps.
+
+
+**r6 Windows failure: `Unverified PowerShell state` during `--traceguard-powershell-self-test`:** The r6 synthetic test set an updated file two seconds into the future and then expected the earlier-timestamped crash fixture to overwrite it. r7 corrects fixture timestamps instead of relaxing production data-safety checks. See `docs/R7-POWERSHELL-TEST-FIX.md`.

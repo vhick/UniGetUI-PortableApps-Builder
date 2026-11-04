@@ -28,6 +28,18 @@ class PowerShellScopePolicyTests(unittest.TestCase):
         self.assertIn('Directory.Delete(source, false)', SRC)
         self.assertIn('AssertTreeMatches(source, destination)', SRC)
 
+    def test_fixture_timestamp_order_and_conflict_safety(self):
+        import re
+        fixture = SRC.split('static bool PowerShellScopeSelfTest()', 1)[1].split('static bool SelfTest()', 1)[0]
+        self.assertNotIn('AddSeconds(2)', fixture)
+        self.assertNotRegex(fixture, r'fixtureClock\.AddMinutes\(\s*[1-9]')
+        self.assertRegex(fixture, r'fixtureClock\.AddMinutes\(-30\)')
+        self.assertRegex(fixture, r'fixtureClock\.AddMinutes\(-20\)')
+        self.assertRegex(fixture, r'fixtureClock\.AddMinutes\(-10\)')
+        self.assertIn('bool refusedOlder = false;', fixture)
+        self.assertIn('catch (IOException) { refusedOlder = true; }', fixture)
+        self.assertIn('"crash recovery"', fixture)
+
     def test_isolated_windows_selftest_is_mandatory(self):
         self.assertIn('"--traceguard-powershell-self-test"', SRC)
         self.assertIn("$powershellTest = Start-Process -FilePath $exe -ArgumentList '--traceguard-powershell-self-test'", WORKFLOW)
