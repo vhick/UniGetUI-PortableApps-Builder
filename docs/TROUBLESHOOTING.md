@@ -1,0 +1,29 @@
+# Troubleshooting
+
+**Action does not show in GitHub:** Ensure `.github/workflows/build-portableapps.yml` is at the repository root, not inside an extra extracted directory. Commit and push with GitHub Desktop. Check Settings > Actions for repository policy.
+
+**No stable release:** GitHub may be rate-limited or latest release may be a prerelease. Enter a verified stable `YYYY.N.N` upstream version manually. Do not switch to prerelease automatically.
+
+**Source compilation fails:** `source-compile` is an experimental advanced option. Retry `release-zip` for official checksum-verified upstream x64 portable binaries. The *launcher* is always compiled in either method.
+
+**NativeAOT launcher fails:** Review the .NET 10 setup and Windows C++ build tools from the hosted runner. Do not replace the EXE with a script or bypass antivirus. Check all compiler errors in the log.
+
+**Shared packager fails:** Keep the valid ZIP locally in that Windows job but do not claim the release is complete. Investigate shared action logs; do not silently change engine or create a competing installer.
+
+**PortableApps Menu does not show UniGetUI:** Correct path is `PortableApps/UniGetUIPortable/UniGetUIPortable.exe`. Refresh App Icons. Do not run `App/UniGetUI/UniGetUI.exe` as the main portable launcher.
+
+**Settings are missing after migrating from normal UniGetUI:** New portable storage intentionally starts empty. Upstream can offer migration of `Configuration` and `InstallationOptions` from `%LOCALAPPDATA%\UniGetUI`. Back up both locations first. Never let TraceGuard move a previous installed user's whole profile.
+
+**App stores data in LocalAppData:** Confirm the `ForceUniGetUIPortable` marker exists next to the actual UniGetUI.exe and the portable folder is writable. Upstream documents silent fallback when portable settings cannot be written.
+
+**Launcher says another instance is running:** Close UniGetUI launched from this portable folder. The launcher uses a location-specific Windows mutex and upstream may also enforce its own single-instance limit.
+
+**Crash / stuck files:** Do not immediately reinstall. Restart the root launcher so it can recover `App/UniGetUI/Settings` and the interrupted TraceGuard journal. Inspect `Data/TraceGuard/launcher.log` and `Conflicts`. Do not delete `session.json` or `App/UniGetUI/Settings` manually.
+
+**New empty directories were not captured:** Only application-specific monitored scopes and portable settings are eligible. Other system-wide directories or pre-existing host paths are protected. See `docs/PORTABILITY-AUDIT.md`.
+
+**Installer or antivirus flags unsigned software:** This custom NativeAOT launcher and independent NSIS installer may be unsigned. Verify release checksums, source and build logs. Do not disable Defender or add exclusions. False-positive resolution requires legitimate vendor review / signing.
+
+**ZIP extraction upgrades leave obsolete files:** A ZIP copied over a working tree does not remove old App files. Prefer the shared NSIS installer for upgrades. Always retain the `Data` directory and check the old application is closed.
+
+**Package-only workflow cannot find ZIP:** Enter the source release tag of a completed release from the full builder, with `SHA256SUMS.txt`, exactly one `UniGetUIPortable_...zip`, and no unpublished/draft releases. Package-only creates a separate new release tag because the shared publisher intentionally refuses conflicting existing assets.

@@ -1,0 +1,90 @@
+name: Repackage existing PortableApps ZIP (no upstream rebuild)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_release_tag:
+        description: 'Tag of an existing completed PortableApps ZIP release in this repository'
+        required: true
+        type: string
+      package_revision:
+        description: 'Independent packager filename revision'
+        type: string
+        default: repack1
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unigetui-portableapps-repackage
+  cancel-in-progress: false
+
+jobs:
+  repackage:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify pinned shared action contracts
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/verify-actions.ps1
+
+      - name: Obtain existing package, check publisher SHA256SUMS, and extract safely
+        id: package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ inputs.source_release_tag }}
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+        run: ./scripts/fetch-existing.ps1 -SourceTag $env:SOURCE_TAG -PackageRevision $env:PACKAGE_REVISION
+
+      - name: Validate unpacked original app and independent ZIP
+        shell: pwsh
+        run: ./scripts/validate-stage.ps1
+
+      - name: Build installer with pinned shared packager only
+        id: packager
+        uses: vhick/Portable-Package-Builder@v1.0.0
+        with:
+          source-dir: work/UniGetUIPortable
+          output-dir: dist
+          engine: custom-nsis
+          running-exe: 'App\UniGetUI\UniGetUI.exe'
+          package-revision: ${{ inputs.package_revision }}
+
+      - name: Verify separate installer
+        shell: pwsh
+        env:
+          INSTALLER: ${{ steps.packager.outputs.installer-file }}
+          INSTALLER_SHA256: ${{ steps.packager.outputs.installer-sha256 }}
+        run: ./scripts/validate-installer.ps1 -Installer $env:INSTALLER -Sha256 $env:INSTALLER_SHA256
+
+      - name: Dry-run shared publisher
+        uses: vhick/portable-release-publisher@v1.1.1
+        with:
+          files: |
+            dist/*.zip
+            dist/*.paf.exe
+          tag: ${{ steps.package.outputs.release_tag }}
+          release-title: 'UniGetUI repackage ${{ steps.package.outputs.version }} (${{ inputs.package_revision }})'
+          prune: 'false'
+          keep-releases: '3'
+          dry-run: 'true'
+
+      - name: Publish separate repack release including original ZIP
+        uses: vhick/portable-release-publisher@v1.1.1
+        with:
+          files: |
+            dist/*.zip
+            dist/*.paf.exe
+          tag: ${{ steps.package.outputs.release_tag }}
+          release-title: 'UniGetUI repackage ${{ steps.package.outputs.version }} (${{ inputs.package_revision }})'
+          prune: 'false'
+          keep-releases: '3'
+          dry-run: 'false'

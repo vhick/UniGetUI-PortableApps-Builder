@@ -1,0 +1,20 @@
+# Runtime downloads and staged packages; never commit upstream binaries or user data.
+/work/
+/dist/
+
+# Build output from actual NativeAOT compilation
+**/bin/
+**/obj/
+/src/UniGetUIPortable/brand.ico
+
+# Test and editor caches
+__pycache__/
+*.py[cod]
+.vs/
+.vscode/
+*.user
+*.suo
+
+# GitHub generated packages
+*.paf.exe
+*.zip
