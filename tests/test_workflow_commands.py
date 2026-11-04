@@ -35,10 +35,10 @@ class WorkflowCommandsTests(unittest.TestCase):
             r'(?m)^\s*run: python -m unittest discover[^\n]*\n\s+\./tests/test-release-policy\.ps1',
         )
 
-    def test_b5_revision_is_consistent(self):
-        self.assertIn('-BuilderRevision b5 -PackageRevision r1', self.workflow)
-        self.assertIn('_b5.zip', self.workflow)
-        self.assertIn('builder b5, independent NSIS r1', self.workflow)
+    def test_b6_revision_is_consistent(self):
+        self.assertIn('-BuilderRevision b6 -PackageRevision r1', self.workflow)
+        self.assertIn('_b6.zip', self.workflow)
+        self.assertIn('builder b6, independent NSIS r1', self.workflow)
         self.assertNotIn('builder b2, independent', self.workflow)
 
     def test_root_data_scope_regression_is_run_before_upstream_download(self):
@@ -58,11 +58,12 @@ class WorkflowCommandsTests(unittest.TestCase):
         # NativeAOT GUI (WinExe) programs do not reliably set $LASTEXITCODE.
         block = self.workflow.split('      - name: Run isolated, non-GUI Windows TraceGuard tests', 1)[1].split('      - name:', 1)[0]
         self.assertIn('timeout-minutes: 3', block)
-        self.assertEqual(block.count('Start-Process -FilePath $exe'), 2)
-        self.assertEqual(block.count('-NoNewWindow -PassThru -Wait'), 2)
+        self.assertEqual(block.count('Start-Process -FilePath $exe'), 3)
+        self.assertEqual(block.count('-NoNewWindow -PassThru -Wait'), 3)
         self.assertIn("'--traceguard-exit-probe'", block)
         self.assertIn('ExitCode -ne 7', block)
         self.assertIn("'--traceguard-self-test'", block)
+        self.assertIn("'--traceguard-powershell-self-test'", block)
         self.assertIn('ExitCode -ne 0', block)
         self.assertNotIn('if ($LASTEXITCODE -ne 0)', block)
 

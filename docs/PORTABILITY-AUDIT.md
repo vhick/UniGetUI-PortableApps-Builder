@@ -26,6 +26,8 @@
 | `.ubundle` association | Installer adds handler | Not registered | Open via command line |
 | Autostart / PATH / shortcuts | Installer may register | None by default | No silent persistence or PATH edits |
 | WinGet, Scoop, Chocolatey, pip, npm, .NET Tool, Cargo etc. | Use host data/registry/elevation | Still host-managed | Installed applications are not portable |
+| `%LOCALAPPDATA%\PSResourceGet` | PowerShell repository registrations, `PSResourceRepository.xml` | Newly created root captured to `Data\TraceGuard\External\LocalAppData_PSResourceGet` when safe; pre-existing root untouched | Shared PowerShell state: cannot guarantee exclusive attribution |
+| `%LOCALAPPDATA%\PackageManagement` | CurrentUser PackageManagement providers | New session-created root captured only if no installed provider assemblies; pre-existing root untouched | Provider assemblies required by other apps stay on host |
 | Other possible app-created `%APPDATA%\UniGetUI`, `%PROGRAMDATA%\UniGetUI` | Not established as normal upstream portable locations | Narrow defensive TraceGuard scopes | Not proof of ownership; do not capture entire host trees |
 
 ## Launcher design rationale
@@ -52,6 +54,8 @@ The audit did not conclusively enumerate every WinGet/Chocolatey/Scoop registry 
 
 ## Evidence references
 
+- https://learn.microsoft.com/en-us/powershell/gallery/powershellget/supported-repositories?view=powershellget-3.x
+- https://learn.microsoft.com/en-us/powershell/module/packagemanagement/install-packageprovider?view=powershellget-2.x
 - https://github.com/Devolutions/UniGetUI/blob/main/docs/PORTABLE.md
 - https://github.com/Devolutions/UniGetUI/blob/main/docs/CLI.md
 - https://github.com/Devolutions/UniGetUI/blob/main/AGENTS.md

@@ -41,3 +41,7 @@ The original b1 resolver used `@(Invoke-RestMethod .../releases)` piped to `Wher
 ## r3 Windows TraceGuard step reports PASS but GitHub Actions still fails
 
 The launcher uses Windows GUI subsystem (`OutputType=WinExe`), which does not reliably set PowerShell's `$LASTEXITCODE` after direct `&` invocation. The r3 runner therefore printed a self-test PASS and then threw `Native launcher TraceGuard tests failed.` The r4 workflow uses `Start-Process -Wait -PassThru`, checks the returned Process `.ExitCode`, and first checks a deliberate exit code `7` to catch test-runner mistakes. Keep the launcher as `WinExe` for PortableApps Menu compatibility; do not convert to a console app to work around this issue.
+
+## PowerShell folders under LocalAppData
+
+`PSResourceGet` and `PackageManagement` are shared Microsoft PowerShell storage, **not exclusive UniGetUI files**. In r6, a root that already exists at launcher startup is deliberately protected. New roots can be captured after app exit when their contents can be verified, except for installed PackageManagement provider assemblies. See `docs/R6-POWERSHELL-TRACEGUARD.md` and run `./scripts/report-powershell-state.ps1` for a read-only report. Never blindly delete a folder containing `ProviderAssemblies`, and do not redirect all of `%LOCALAPPDATA%` to PortableApps.

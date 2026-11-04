@@ -60,7 +60,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.upstream_version }}
-        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b5 -PackageRevision r1
+        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b6 -PackageRevision r1
 
       - name: Set up .NET 10 for compiled NativeAOT launcher
         if: steps.upstream.outputs.skip != 'true'
@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         env:
           BUILD_METHOD: ${{ inputs.build_method }}
-        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b5
+        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b6
 
       - name: Run isolated, non-GUI Windows TraceGuard tests
         if: steps.upstream.outputs.skip != 'true'
@@ -92,7 +92,11 @@ jobs:
           if ($null -eq $test -or $null -eq $test.ExitCode -or $test.ExitCode -ne 0) {
             throw "Native launcher TraceGuard tests failed. Expected 0; actual: $($test.ExitCode)"
           }
-          Write-Host 'PASS: Windows GUI launcher exit-code probe and TraceGuard recovery fixtures.'
+          $powershellTest = Start-Process -FilePath $exe -ArgumentList '--traceguard-powershell-self-test' -NoNewWindow -PassThru -Wait
+          if ($null -eq $powershellTest -or $null -eq $powershellTest.ExitCode -or $powershellTest.ExitCode -ne 0) {
+            throw "Scoped PowerShell TraceGuard tests failed. Expected 0; actual: $($powershellTest.ExitCode)"
+          }
+          Write-Host 'PASS: Windows GUI launcher exit codes, baseline TraceGuard, isolated shared PowerShell trace tests.'
 
       - name: Validate staged genuine Windows launcher and AppInfo
         if: steps.upstream.outputs.skip != 'true'
@@ -104,7 +108,7 @@ jobs:
         shell: pwsh
         env:
           UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
-        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b5.zip"
+        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b6.zip"
 
       - name: Build separate independent NSIS installer via shared packager
         if: steps.upstream.outputs.skip != 'true'
@@ -134,7 +138,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b5, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b6, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'true'
@@ -147,7 +151,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b5, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b6, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'false'

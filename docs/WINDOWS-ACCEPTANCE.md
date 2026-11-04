@@ -23,3 +23,16 @@
 - [ ] Confirm no unwanted process/file-association/PATH/autostart entries were created by the PortableApps package itself.
 
 These are **manual outstanding tests** until someone checks them on a Windows machine. CI's structural ZIP tests and launcher self-test do not substitute for them.
+
+## r6: Shared PowerShell traces (not verified by CI alone)
+
+- [ ] Test in a **separate disposable Windows user account** or VM without `%LOCALAPPDATA%\PSResourceGet` and `%LOCALAPPDATA%\PackageManagement`.
+- [ ] Launch `UniGetUIPortable.exe`, allow normal package manager discovery, and close it fully.
+- [ ] If a new PSResourceGet directory was produced, confirm it has been copied to `Data\TraceGuard\External\LocalAppData_PSResourceGet` and removed from LocalAppData on clean exit.
+- [ ] If a new PackageManagement directory was produced without installed providers, confirm it was safely captured; empty directories must survive.
+- [ ] If any `ProviderAssemblies` files are installed, confirm PackageManagement remains on the host and `launcher.log` records why.
+- [ ] Start again and verify PSResourceGet repository registrations are available during the session and re-captured after exit.
+- [ ] Repeat with **pre-existing** PowerShell directories holding user settings/providers; verify they are **unchanged** after launch and close.
+- [ ] Verify unrelated user PowerShell commands continue to work.
+- [ ] Terminate the launcher abnormally during a test, then run it again to verify journal-based recovery.
+- [ ] Run `scripts/report-powershell-state.ps1` as a read-only diagnostic when old r5 folders already exist.

@@ -18,6 +18,10 @@ internal static class Program
     [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
     static extern int MessageBoxW(nint hWnd, string text, string caption, uint type);
 
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool CreateDirectoryW(string path, nint securityAttributes);
+
     static int Main(string[] args)
     {
         // Return a known nonzero code to validate GUI-subsystem process handling in CI.
@@ -25,6 +29,8 @@ internal static class Program
             return 7;
         if (args.Length == 1 && args[0] == "--traceguard-self-test")
             return SelfTest() ? 0 : 2;
+        if (args.Length == 1 && args[0] == "--traceguard-powershell-self-test")
+            return PowerShellScopeSelfTest() ? 0 : 3;
         Root = Path.GetFullPath(AppContext.BaseDirectory);
         Data = Path.Combine(Root, "Data");
         Guard = Path.Combine(Data, "TraceGuard");
@@ -80,6 +86,10 @@ internal static class Program
         var journal = new Journal(Environment.MachineName, Environment.UserName, DateTime.UtcNow,
             scopes.Select(s => MakeScopeState(s.Key, s.Value)).ToList());
         SaveJournal(statePath, journal); // written before starting any external processes
+        // PSResourceGet and PackageManagement are shared Windows-user state, not
+        // UniGetUI-owned profiles. Only provision a saved copy when the host path
+        // was completely absent before launch. Never replace an existing host path.
+        journal = RestoreSharedPowerShellScopes(journal, statePath);
         using var process = new Process();
         process.StartInfo.FileName = Path.Combine(App, "UniGetUI.exe");
         process.StartInfo.WorkingDirectory = App;
@@ -150,14 +160,26 @@ internal static class Program
             ["LocalAppData_Devolutions_Pinget"] = Path.Combine(local, "Devolutions", "Pinget"),
             ["AppData_UniGetUI"] = Path.Combine(roaming, "UniGetUI"),
             ["Temp_UniGetUI"] = Path.Combine(Path.GetTempPath(), "UniGetUI"),
-            ["ProgramData_UniGetUI"] = Path.Combine(common, "UniGetUI")
+            ["ProgramData_UniGetUI"] = Path.Combine(common, "UniGetUI"),
+            ["LocalAppData_PSResourceGet"] = Path.Combine(local, "PSResourceGet"),
+            ["LocalAppData_PackageManagement"] = Path.Combine(local, "PackageManagement")
         };
     }
+
+    static bool IsSharedPowerShellScope(string key) =>
+        key is "LocalAppData_PSResourceGet" or "LocalAppData_PackageManagement";
 
     static ScopeState MakeScopeState(string key, string path)
     {
         bool existed = Directory.Exists(path);
         if (!existed) return new ScopeState(key, path, false, new List<string>(), false);
+        if (IsSharedPowerShellScope(key))
+        {
+            // These locations belong to PowerShell itself and may be used by
+            // unrelated software. Never snapshot or migrate a pre-existing root.
+            WriteLog("HOST PROTECTED pre-existing shared PowerShell path: " + path);
+            return new ScopeState(key, path, true, new List<string>(), true);
+        }
         try { return new ScopeState(key, path, true, Snapshot(path), false); }
         catch (Exception ex)
         {
@@ -179,9 +201,9 @@ internal static class Program
         return items;
     }
 
-    static void CaptureExternal(Journal journal)
+    static void CaptureExternal(Journal journal, Dictionary<string, string>? allowed = null)
     {
-        var allowedScopes = GetScopes();
+        var allowedScopes = allowed ?? GetScopes();
         foreach (ScopeState entry in journal.Scopes)
         {
             if (entry.SkipCapture) { WriteLog("HOST PROTECTED inaccessible scope: " + entry.Path); continue; }
@@ -192,6 +214,18 @@ internal static class Program
                 continue;
             }
             if (!Directory.Exists(entry.Path)) continue;
+            if (IsSharedPowerShellScope(entry.Key) && entry.ExistedBefore)
+            {
+                WriteLog("HOST PROTECTED existing shared PowerShell state: " + entry.Path);
+                continue;
+            }
+            if (entry.Key == "LocalAppData_PackageManagement" && HasInstalledProviders(entry.Path))
+            {
+                // PowerShell's ProviderAssemblies are installed CurrentUser
+                // components. Taking them offline may break other applications.
+                WriteLog("HOST PROTECTED installed PackageManagement provider assemblies: " + entry.Path);
+                continue;
+            }
             try
             {
                 AssertSafePath(entry.Path);
@@ -199,8 +233,11 @@ internal static class Program
                 if (!entry.ExistedBefore)
                 {
                     Mirror(entry.Path, dest, Path.Combine(Guard, "Conflicts"), true);
-                    RemoveCapturedTree(entry.Path, dest);
-                    WriteLog("Captured new app-owned external directory: " + entry.Key);
+                    if (IsSharedPowerShellScope(entry.Key))
+                        RemoveCapturedTreeNonRecursive(entry.Path, dest);
+                    else
+                        RemoveCapturedTree(entry.Path, dest);
+                    WriteLog("Captured new external directory: " + entry.Key);
                 }
                 else
                 {
@@ -236,6 +273,104 @@ internal static class Program
                 throw;
             }
         }
+    }
+
+    // Shared PowerShell storage can belong to other programs. We only restore
+    // a previous portable copy if that entire host root was absent at launch.
+    // The durable session journal exists before any rehydration happens.
+    static Journal RestoreSharedPowerShellScopes(Journal journal, string journalPath,
+        Dictionary<string, string>? allowed = null)
+    {
+        var allowedScopes = allowed ?? GetScopes();
+        var states = journal.Scopes.ToList();
+        bool changed = false;
+        for (int i = 0; i < states.Count; i++)
+        {
+            ScopeState entry = states[i];
+            if (!IsSharedPowerShellScope(entry.Key) || entry.ExistedBefore || entry.SkipCapture)
+                continue;
+            if (!allowedScopes.TryGetValue(entry.Key, out string? expected) ||
+                !string.Equals(entry.Path, expected, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Shared PowerShell scope unexpectedly changed: " + entry.Key);
+            string saved = Path.Combine(Guard, "External", entry.Key);
+            if (!Directory.Exists(saved)) continue; // first launch: let PowerShell create it
+            if (entry.Key == "LocalAppData_PackageManagement" && HasInstalledProviders(saved))
+            {
+                WriteLog("HOST PROTECTED saved PackageManagement provider assemblies: " + saved);
+                states[i] = entry with { SkipCapture = true };
+                changed = true;
+                continue;
+            }
+            AssertSafePath(saved);
+            AssertSafePath(entry.Path);
+            // Win32 CreateDirectoryW fails atomically if another program created
+            // the root since our snapshot. Do not merge with that host data.
+            if (!CreateDirectoryW(entry.Path, 0))
+            {
+                int error = Marshal.GetLastWin32Error();
+                if (error != 183) throw new IOException("Cannot safely create PowerShell session root: " + entry.Path + "; Win32=" + error);
+                WriteLog("HOST PROTECTED PowerShell root appeared during launch: " + entry.Path);
+                states[i] = entry with { SkipCapture = true };
+                changed = true;
+                continue;
+            }
+            Mirror(saved, entry.Path, Path.Combine(Guard, "Conflicts"), true);
+            AssertTreeMatches(saved, entry.Path);
+            WriteLog("Rehydrated captured PowerShell state for session: " + entry.Key);
+        }
+        if (changed)
+        {
+            var updated = journal with { Scopes = states };
+            SaveJournal(journalPath, updated);
+            return updated;
+        }
+        return journal;
+    }
+
+    static bool HasInstalledProviders(string root)
+    {
+        string providerAssemblies = Path.Combine(root, "ProviderAssemblies");
+        if (!Directory.Exists(providerAssemblies)) return false;
+        try { return SafeEntries(providerAssemblies).Any(File.Exists); }
+        catch (Exception ex)
+        {
+            WriteLog("HOST PROTECTED unreadable provider assemblies: " + ex.Message);
+            return true;
+        }
+    }
+
+    static void AssertTreeMatches(string source, string destination)
+    {
+        if (!Directory.Exists(source) || !Directory.Exists(destination))
+            throw new IOException("Source or destination folder missing during copy verification.");
+        foreach (string item in SafeEntries(source))
+        {
+            string target = Path.Combine(destination, Path.GetRelativePath(source, item));
+            if (Directory.Exists(item))
+            {
+                if (!Directory.Exists(target)) throw new IOException("Missing empty folder: " + target);
+            }
+            else if (!File.Exists(target) || !SameBytes(item, target))
+                throw new IOException("Unverified PowerShell state: " + target);
+        }
+    }
+
+    static void RemoveCapturedTreeNonRecursive(string source, string destination)
+    {
+        // Fail safely if a concurrent process introduces anything not captured.
+        // Unlike Directory.Delete(..., true), this will not remove surprise files.
+        AssertSafePath(source);
+        AssertTreeMatches(source, destination);
+        var paths = SafeEntries(source).ToList();
+        foreach (string file in paths.Where(File.Exists))
+        {
+            string target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            if (!SameBytes(file, target)) throw new IOException("External file changed during cleanup: " + file);
+            File.Delete(file);
+        }
+        foreach (string dir in paths.Where(Directory.Exists).OrderByDescending(x => x.Length))
+            Directory.Delete(dir, false);
+        Directory.Delete(source, false);
     }
 
     // Monotonic merging: never silently overwrite conflicting content; preserves empty directories.
@@ -373,6 +508,111 @@ internal static class Program
     }
     internal record ScopeState(string Key, string Path, bool ExistedBefore, List<string> Preexisting, bool SkipCapture);
     internal record Journal(string Machine, string User, DateTime StartedUtc, List<ScopeState> Scopes);
+
+    static bool PowerShellScopeSelfTest()
+    {
+        try
+        {
+            string t = Path.Combine(Path.GetTempPath(), "UniGetUIPortablePowerShellSelfTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Root = t; Data = Path.Combine(t, "Data"); Guard = Path.Combine(Data, "TraceGuard");
+                App = Path.Combine(t, "App", "UniGetUI");
+                string host = Path.Combine(t, "HostLocalAppData");
+                string resource = Path.Combine(host, "PSResourceGet");
+                string management = Path.Combine(host, "PackageManagement");
+                var allowed = new Dictionary<string, string> {
+                    ["LocalAppData_PSResourceGet"] = resource,
+                    ["LocalAppData_PackageManagement"] = management
+                };
+                // First launch: an absent root is eligible for session capture.
+                var newState = MakeScopeState("LocalAppData_PSResourceGet", resource);
+                if (newState.ExistedBefore || newState.SkipCapture) throw new Exception("Missing root treated as pre-existing");
+                Directory.CreateDirectory(Path.Combine(resource, "empty", "deep"));
+                File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "test-repositories");
+                var first = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { newState });
+                CaptureExternal(first, allowed);
+                string saved = Path.Combine(Guard, "External", "LocalAppData_PSResourceGet");
+                if (Directory.Exists(resource) || !File.Exists(Path.Combine(saved, "PSResourceRepository.xml")) ||
+                    !Directory.Exists(Path.Combine(saved, "empty", "deep")))
+                    throw new Exception("New PSResourceGet root or empty directories not captured");
+                // Next launch: rehydrate only when host root remains absent.
+                var next = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
+                string journalPath = Path.Combine(Guard, "session-test.json");
+                SaveJournal(journalPath, next);
+                next = RestoreSharedPowerShellScopes(next, journalPath, allowed);
+                if (File.ReadAllText(Path.Combine(resource, "PSResourceRepository.xml")) != "test-repositories" ||
+                    !Directory.Exists(Path.Combine(resource, "empty", "deep")))
+                    throw new Exception("Restoration lost PowerShell repository or empty folder");
+                File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "updated-repositories");
+                File.SetLastWriteTimeUtc(Path.Combine(resource, "PSResourceRepository.xml"), DateTime.UtcNow.AddSeconds(2));
+                CaptureExternal(next, allowed);
+                if (Directory.Exists(resource) ||
+                    File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "updated-repositories")
+                    throw new Exception("Updated portable PowerShell repository was not retained");
+                // Existing host settings must never be displaced or overwritten.
+                Directory.CreateDirectory(resource);
+                File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "host-own-settings");
+                var protectedState = MakeScopeState("LocalAppData_PSResourceGet", resource);
+                if (!protectedState.ExistedBefore || !protectedState.SkipCapture)
+                    throw new Exception("Pre-existing PSResourceGet host state is not protected");
+                var protectedSession = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { protectedState });
+                protectedSession = RestoreSharedPowerShellScopes(protectedSession, journalPath, allowed);
+                CaptureExternal(protectedSession, allowed);
+                if (File.ReadAllText(Path.Combine(resource, "PSResourceRepository.xml")) != "host-own-settings" ||
+                    File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "updated-repositories")
+                    throw new Exception("Existing host profile was modified");
+                // A root created after our snapshot is treated as a collision.
+                Directory.Delete(resource, true);
+                var collision = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
+                SaveJournal(journalPath, collision);
+                Directory.CreateDirectory(resource);
+                File.WriteAllText(Path.Combine(resource, "unrelated.txt"), "other-process");
+                collision = RestoreSharedPowerShellScopes(collision, journalPath, allowed);
+                CaptureExternal(collision, allowed);
+                if (!File.Exists(Path.Combine(resource, "unrelated.txt")) || !collision.Scopes[0].SkipCapture)
+                    throw new Exception("Unrelated PowerShell collision was not protected");
+                // ProviderAssemblies contains installed Windows-user components.
+                Directory.CreateDirectory(Path.Combine(management, "ProviderAssemblies", "NuGet"));
+                File.WriteAllText(Path.Combine(management, "ProviderAssemblies", "NuGet", "provider.dll"), "fixture");
+                var managementPreexisting = MakeScopeState("LocalAppData_PackageManagement", management);
+                if (!managementPreexisting.SkipCapture) throw new Exception("Host provider assembly not protected");
+                Directory.Delete(management, true);
+                var managementNew = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PackageManagement", management) });
+                Directory.CreateDirectory(Path.Combine(management, "ProviderAssemblies", "NuGet"));
+                File.WriteAllText(Path.Combine(management, "ProviderAssemblies", "NuGet", "provider.dll"), "fixture");
+                CaptureExternal(managementNew, allowed);
+                if (!File.Exists(Path.Combine(management, "ProviderAssemblies", "NuGet", "provider.dll")))
+                    throw new Exception("Installed CurrentUser provider unexpectedly removed");
+                // An empty newly created PackageManagement tree is preserved.
+                Directory.Delete(management, true);
+                var emptyManagement = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PackageManagement", management) });
+                Directory.CreateDirectory(Path.Combine(management, "cache", "nested", "empty"));
+                CaptureExternal(emptyManagement, allowed);
+                if (Directory.Exists(management) || !Directory.Exists(Path.Combine(Guard, "External", "LocalAppData_PackageManagement", "cache", "nested", "empty")))
+                    throw new Exception("Empty PackageManagement folders not captured");
+                // Crash recovery uses the same saved snapshot and capture routine.
+                Directory.Delete(resource, true);
+                var interrupted = new Journal(Environment.MachineName, Environment.UserName,
+                    DateTime.UtcNow, new List<ScopeState> { MakeScopeState("LocalAppData_PSResourceGet", resource) });
+                Directory.CreateDirectory(resource);
+                File.WriteAllText(Path.Combine(resource, "PSResourceRepository.xml"), "after-crash");
+                CaptureExternal(interrupted, allowed);
+                if (Directory.Exists(resource) || File.ReadAllText(Path.Combine(saved, "PSResourceRepository.xml")) != "after-crash")
+                    throw new Exception("PowerShell trace crash recovery failed");
+            }
+            finally { if (Directory.Exists(t)) Directory.Delete(t, true); }
+            Console.WriteLine("PowerShell TraceGuard self-test PASS: capture, rehydration, host protection, collision, providers, empty folders, recovery");
+            return true;
+        }
+        catch (Exception ex) { Console.Error.WriteLine("PowerShell TraceGuard self-test FAIL: " + ex); return false; }
+    }
 
     static bool SelfTest()
     {
