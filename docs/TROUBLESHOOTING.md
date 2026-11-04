@@ -27,3 +27,8 @@
 **ZIP extraction upgrades leave obsolete files:** A ZIP copied over a working tree does not remove old App files. Prefer the shared NSIS installer for upgrades. Always retain the `Data` directory and check the old application is closed.
 
 **Package-only workflow cannot find ZIP:** Enter the source release tag of a completed release from the full builder, with `SHA256SUMS.txt`, exactly one `UniGetUIPortable_...zip`, and no unpublished/draft releases. Package-only creates a separate new release tag because the shared publisher intentionally refuses conflicting existing assets.
+
+
+## r2: GitHub reports no suitable stable release even though one exists
+
+The original b1 resolver used `@(Invoke-RestMethod .../releases)` piped to `Where-Object`. PowerShell can pass the JSON release array as one object, causing the predicate to reject the entire set. r2 uses `.../releases/latest` and checks the release history with explicit array traversal. The Windows workflow now runs `tests/test-release-policy.ps1` before requesting release binaries. Leave `upstream_version` blank for latest stable, or specify `2026.3.3` to select that tag explicitly.

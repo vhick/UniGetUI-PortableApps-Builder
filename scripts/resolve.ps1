@@ -1,20 +1,42 @@
-param([string]$Version = '', [string]$BuilderRevision = 'b1', [string]$PackageRevision = 'r1')
+param([string]$Version = '', [string]$BuilderRevision = 'b2', [string]$PackageRevision = 'r1')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'release-policy.ps1')
 $headers = @{ 'User-Agent' = 'UniGetUI-PortableApps-Builder'; 'Accept' = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
 if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 $api = 'https://api.github.com/repos/Devolutions/UniGetUI'
 if ($Version -and $Version -notmatch '^v?\d{4}\.\d+\.\d+$') { throw 'Version must be a stable YYYY.N.N value, e.g. 2026.3.3' }
+$release = $null
 if ($Version) {
   $tag = 'v' + $Version.TrimStart('v')
-  $release = Invoke-RestMethod "$api/releases/tags/$tag" -Headers $headers
+  Write-Host "Resolving explicitly requested upstream stable tag: $tag"
+  $release = Invoke-RestMethod -Uri "$api/releases/tags/$tag" -Headers $headers
 } else {
-  $releases = @(Invoke-RestMethod "$api/releases?per_page=40" -Headers $headers)
-  $release = $releases | Where-Object { -not $_.draft -and -not $_.prerelease -and $_.tag_name -match '^v\d{4}\.\d+\.\d+$' } | Select-Object -First 1
-  if (-not $release) { throw 'No suitable stable upstream release. Supply a manually checked stable version.' }
+  # A /releases collection is returned as an array object by Invoke-RestMethod;
+  # piping that directly to Where-Object can filter the whole array as ONE item.
+  # Use the dedicated latest stable release endpoint first instead.
+  Write-Host 'Resolving latest stable UniGetUI release using GitHub /releases/latest.'
+  try {
+    $candidate = Invoke-RestMethod -Uri "$api/releases/latest" -Headers $headers
+    if (Test-UniGetUIStableRelease -Candidate $candidate) { $release = $candidate }
+    else { Write-Warning 'Latest release did not contain a suitable stable Windows x64 ZIP. Checking release history.' }
+  }
+  catch {
+    $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+    if ($status -ne 404) { throw }
+    Write-Warning 'GitHub latest release endpoint returned 404. Checking release history.'
+  }
+  if ($null -eq $release) {
+    # Keep the releases response intact and traverse explicitly; never filter
+    # Invoke-RestMethod collection output as though it emitted one item at a time.
+    $history = Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers
+    $release = Find-UniGetUIStableRelease -Candidates $history
+  }
 }
-if ($release.draft -or $release.prerelease) { throw 'Prerelease or draft refused.' }
-if ($release.tag_name -notmatch '^v(\d{4}\.\d+\.\d+)$') { throw 'Unstable or invalid upstream release tag.' }
+if (-not (Test-UniGetUIStableRelease -Candidate $release)) {
+  throw 'No suitable stable upstream release with official UniGetUI.x64.zip. Check GitHub release assets or select a manually checked stable version.'
+}
+if ($release.tag_name -notmatch '^v(\d{4}\.\d+\.\d+)$') { throw 'Unexpected nonstable upstream tag.' }
 $version = $Matches[1]
 $asset = @($release.assets | Where-Object { $_.name -ceq 'UniGetUI.x64.zip' }) | Select-Object -First 1
 if (-not $asset -or $asset.browser_download_url -notmatch '^https://github\.com/Devolutions/UniGetUI/releases/download/') { throw 'Official x64 portable ZIP missing.' }

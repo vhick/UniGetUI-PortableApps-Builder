@@ -1,4 +1,4 @@
-param([ValidateSet('release-zip','source-compile')][string]$Method = 'release-zip', [string]$BuilderRevision = 'b1')
+param([ValidateSet('release-zip','source-compile')][string]$Method = 'release-zip', [string]$BuilderRevision = 'b2')
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 $meta = Get-Content -LiteralPath work/resolved.json -Raw | ConvertFrom-Json
 $source = Join-Path (Get-Location) 'work/upstream'
