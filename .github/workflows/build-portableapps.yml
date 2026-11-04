@@ -56,7 +56,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.upstream_version }}
-        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b3 -PackageRevision r1
+        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b4 -PackageRevision r1
 
       - name: Set up .NET 10 for compiled NativeAOT launcher
         if: steps.upstream.outputs.skip != 'true'
@@ -69,14 +69,26 @@ jobs:
         shell: pwsh
         env:
           BUILD_METHOD: ${{ inputs.build_method }}
-        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b3
+        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b4
 
       - name: Run isolated, non-GUI Windows TraceGuard tests
         if: steps.upstream.outputs.skip != 'true'
         shell: pwsh
+        timeout-minutes: 3
         run: |
-          & 'work/UniGetUIPortable/UniGetUIPortable.exe' --traceguard-self-test
-          if ($LASTEXITCODE -ne 0) { throw 'Native launcher TraceGuard tests failed.' }
+          # UniGetUIPortable.exe is a Windows GUI-subsystem (WinExe) application.
+          # Direct invocation with & does not reliably populate $LASTEXITCODE.
+          # Wait for the real Windows process and inspect its actual ExitCode.
+          $exe = (Resolve-Path -LiteralPath 'work/UniGetUIPortable/UniGetUIPortable.exe').Path
+          $probe = Start-Process -FilePath $exe -ArgumentList '--traceguard-exit-probe' -NoNewWindow -PassThru -Wait
+          if ($null -eq $probe -or $null -eq $probe.ExitCode -or $probe.ExitCode -ne 7) {
+            throw "GUI launcher exit-code probe failed. Expected 7; actual: $($probe.ExitCode)"
+          }
+          $test = Start-Process -FilePath $exe -ArgumentList '--traceguard-self-test' -NoNewWindow -PassThru -Wait
+          if ($null -eq $test -or $null -eq $test.ExitCode -or $test.ExitCode -ne 0) {
+            throw "Native launcher TraceGuard tests failed. Expected 0; actual: $($test.ExitCode)"
+          }
+          Write-Host 'PASS: Windows GUI launcher exit-code probe and TraceGuard recovery fixtures.'
 
       - name: Validate staged genuine Windows launcher and AppInfo
         if: steps.upstream.outputs.skip != 'true'
@@ -88,7 +100,7 @@ jobs:
         shell: pwsh
         env:
           UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
-        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b3.zip"
+        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b4.zip"
 
       - name: Build separate independent NSIS installer via shared packager
         if: steps.upstream.outputs.skip != 'true'
@@ -118,7 +130,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b3, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b4, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'true'
@@ -131,7 +143,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b3, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b4, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'false'

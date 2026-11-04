@@ -1,8 +1,10 @@
+> **r4 WinExe self-test status fix (2026-11-04):** The r3 GitHub Actions run successfully resolved v2026.3.3, downloaded and staged the official portable ZIP, compiled the real NativeAOT GUI launcher, and printed the TraceGuard PASS message. The workflow nevertheless failed at `$LASTEXITCODE`. r4 explicitly waits for the GUI process and verifies `.ExitCode` using PowerShell `Start-Process -Wait -PassThru`. An independent nonzero exit probe checks the test harness. PASS now prints only after cleanup. See [docs/R4-WINEXE-EXIT-STATUS-FIX.md](docs/R4-WINEXE-EXIT-STATUS-FIX.md).
+
 > **r3 workflow-test fix (2026-11-04):** The r2 GitHub Actions log showed YAML folding the Python and PowerShell test calls into one command; r3 makes them separate workflow steps, adds a regression check, and advances the builder revision to b3. The launch and TraceGuard implementation is unchanged. See [docs/R3-WORKFLOW-TEST-FIX.md](docs/R3-WORKFLOW-TEST-FIX.md).
 
 > **r2 release-selection fix (2026-11-04):** A real GitHub Actions log revealed that the b1 resolver failed to select an upstream stable release because it filtered the complete `Invoke-RestMethod` array as one pipeline object. The earlier r2 kit introduced the GitHub `/releases/latest` API, with explicit safe history traversal when needed, plus a fixture-based PowerShell regression test. r2 was not yet verified by a complete Windows GitHub Actions build.
 
-# UniGetUI PortableApps Builder — b3
+# UniGetUI PortableApps Builder — b4
 
 Independent Windows x64 builder for [Devolutions UniGetUI](https://github.com/Devolutions/UniGetUI). This repository is **not** an official Devolutions release or PortableApps.com-certified build.
 
@@ -16,7 +18,7 @@ This ZIP is a **builder repository**, not the finished UniGetUI application. Com
 4. Compile `UniGetUIPortable.exe` from readable C# as a Windows x64 **NativeAOT** executable with the correct icon (not a batch file or script wrapper).
 5. Assemble `UniGetUIPortable/App`, `Data`, `Other`, accurate AppInfo and MIT attribution.
 6. Run synthetic Windows filesystem, crash-recovery, conflict and empty-folder tests **without launching the GUI**.
-7. Create and validate `UniGetUIPortable_<version>_b3.zip` independently.
+7. Create and validate `UniGetUIPortable_<version>_b4.zip` independently.
 8. Hand the finished staging directory to `vhick/Portable-Package-Builder@v1.0.0` for an independent `custom-nsis` installer, validate its output and provenance JSON.
 9. Run `vhick/portable-release-publisher@v1.1.1` in dry-run mode and then publish both final files in **the same repository**.
 
@@ -86,7 +88,7 @@ For upgrades after an ordinary clean exit, the shared NSIS engine replaces obsol
 3. Name the repository `UniGetUI-PortableApps-Builder` (or another independent name). Choose a local folder, then **Create repository**. **Do not clone or fork UniGetUI**.
 4. In GitHub Desktop, use **Repository > Show in Explorer** to open that new repository folder.
 5. Copy **all contents** from the extracted builder kit folder (including `.github`) into your repository folder, not into a nested folder. `README.md` must be at the repository root.
-6. Return to GitHub Desktop. The **Changes** tab should show the workflows, `scripts`, `src`, documentation, and licenses. Enter summary `Initial UniGetUI PortableApps Builder b3` and click **Commit to main**.
+6. Return to GitHub Desktop. The **Changes** tab should show the workflows, `scripts`, `src`, documentation, and licenses. Enter summary `Initial UniGetUI PortableApps Builder b4` and click **Commit to main**.
 7. Click **Publish repository**. Choose public or private. Leave **Keep this code private** enabled if you want private binaries and private Releases. **Publishing does not change any existing repository visibility.**
 8. Visit your repository on GitHub.com, click **Actions**. If prompted, enable Actions for this repository.
 9. Select **Build UniGetUI PortableApps (x64)**, then **Run workflow**.
@@ -98,7 +100,7 @@ For upgrades after an ordinary clean exit, the shared NSIS engine replaces obsol
 15. From PortableApps Platform choose **Apps > Refresh App Icons**, or restart the Platform. UniGetUI should appear as **UniGetUI Portable**. You can also run `UniGetUIPortable.exe` directly.
 16. Use UniGetUI normally, close the app completely, and verify `Data\Settings` and `Data\TraceGuard` are populated. Move the entire `UniGetUIPortable` folder to another drive and launch again to test relocation.
 17. **Update:** close the app and ensure no recovery is pending, then install a newer `.paf.exe` into the **same** existing destination. Keep `Data` untouched. Verify your saved settings after the update.
-18. **Packaging-only:** run **Repackage existing PortableApps ZIP (no upstream rebuild)**. Enter a fully completed source release tag like `portable-v2026.3.3-b3-r1` and a revision like `repack1`. It downloads and checks the published ZIP, uses the shared packager, and publishes a *separate* repack release with both the original ZIP and new installer. No upstream or launcher compilation occurs.
+18. **Packaging-only:** run **Repackage existing PortableApps ZIP (no upstream rebuild)**. Enter a fully completed source release tag like `portable-v2026.3.3-b4-r1` and a revision like `repack1`. It downloads and checks the published ZIP, uses the shared packager, and publishes a *separate* repack release with both the original ZIP and new installer. No upstream or launcher compilation occurs.
 19. **Recovered folders:** inspect `UniGetUIPortable\Data\TraceGuard\External\<location-name>\...`, including empty directories. Conflicts are under `Data\TraceGuard\Conflicts`. The journal and diagnostics are in `Data\TraceGuard`.
 
 ## Source compilation option

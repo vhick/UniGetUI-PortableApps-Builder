@@ -20,6 +20,9 @@ internal static class Program
 
     static int Main(string[] args)
     {
+        // Return a known nonzero code to validate GUI-subsystem process handling in CI.
+        if (args.Length == 1 && args[0] == "--traceguard-exit-probe")
+            return 7;
         if (args.Length == 1 && args[0] == "--traceguard-self-test")
             return SelfTest() ? 0 : 2;
         Root = Path.GetFullPath(AppContext.BaseDirectory);
@@ -401,10 +404,11 @@ internal static class Program
                 Directory.CreateDirectory(Path.Combine(App, "Settings", "crash", "empty"));
                 Mirror(Path.Combine(App, "Settings"), Path.Combine(Data, "Settings"), Path.Combine(Guard, "Conflicts"), true);
                 if (!Directory.Exists(Path.Combine(Data, "Settings", "crash", "empty"))) throw new Exception("Crash recovery failed");
-                Console.WriteLine("TraceGuard self-test PASS: files, nested empty folders, conflicts, external recovery, crash recovery");
-                return true;
             }
             finally { if (Directory.Exists(t)) Directory.Delete(t, true); }
+            // Do not report PASS until temporary test data has been removed successfully.
+            Console.WriteLine("TraceGuard self-test PASS: files, nested empty folders, conflicts, external recovery, crash recovery");
+            return true;
         }
         catch (Exception ex) { Console.Error.WriteLine("TraceGuard self-test FAIL: " + ex); return false; }
     }

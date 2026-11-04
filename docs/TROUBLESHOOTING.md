@@ -32,3 +32,8 @@
 ## r2: GitHub reports no suitable stable release even though one exists
 
 The original b1 resolver used `@(Invoke-RestMethod .../releases)` piped to `Where-Object`. PowerShell can pass the JSON release array as one object, causing the predicate to reject the entire set. r2 uses `.../releases/latest` and checks the release history with explicit array traversal. The Windows workflow now runs `tests/test-release-policy.ps1` before requesting release binaries. Leave `upstream_version` blank for latest stable, or specify `2026.3.3` to select that tag explicitly.
+
+
+## r3 Windows TraceGuard step reports PASS but GitHub Actions still fails
+
+The launcher uses Windows GUI subsystem (`OutputType=WinExe`), which does not reliably set PowerShell's `$LASTEXITCODE` after direct `&` invocation. The r3 runner therefore printed a self-test PASS and then threw `Native launcher TraceGuard tests failed.` The r4 workflow uses `Start-Process -Wait -PassThru`, checks the returned Process `.ExitCode`, and first checks a deliberate exit code `7` to catch test-runner mistakes. Keep the launcher as `WinExe` for PortableApps Menu compatibility; do not convert to a console app to work around this issue.
