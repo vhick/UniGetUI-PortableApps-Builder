@@ -42,8 +42,13 @@ jobs:
 
       - name: Fast independent ZIP safety fixture tests
         shell: pwsh
-        run: python -m unittest discover -s tests -v
-          ./tests/test-release-policy.ps1
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Python ZIP and workflow fixture tests failed.' }
+
+      - name: Offline stable-release resolver regression tests
+        shell: pwsh
+        run: ./tests/test-release-policy.ps1
 
       - name: Resolve stable release, upstream checksum and actual source commit
         id: upstream
@@ -51,7 +56,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.upstream_version }}
-        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b2 -PackageRevision r1
+        run: ./scripts/resolve.ps1 -Version $env:REQUESTED_VERSION -BuilderRevision b3 -PackageRevision r1
 
       - name: Set up .NET 10 for compiled NativeAOT launcher
         if: steps.upstream.outputs.skip != 'true'
@@ -64,7 +69,7 @@ jobs:
         shell: pwsh
         env:
           BUILD_METHOD: ${{ inputs.build_method }}
-        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b2
+        run: ./scripts/build-stage.ps1 -Method $env:BUILD_METHOD -BuilderRevision b3
 
       - name: Run isolated, non-GUI Windows TraceGuard tests
         if: steps.upstream.outputs.skip != 'true'
@@ -83,7 +88,7 @@ jobs:
         shell: pwsh
         env:
           UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
-        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b2.zip"
+        run: python scripts/package_zip.py work/UniGetUIPortable "dist/UniGetUIPortable_$($env:UPSTREAM_VERSION)_b3.zip"
 
       - name: Build separate independent NSIS installer via shared packager
         if: steps.upstream.outputs.skip != 'true'
@@ -113,7 +118,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b2, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b3, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'true'
@@ -126,7 +131,7 @@ jobs:
             dist/*.zip
             dist/*.paf.exe
           tag: ${{ steps.upstream.outputs.release_tag }}
-          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b2, independent NSIS r1)'
+          release-title: 'UniGetUI PortableApps ${{ steps.upstream.outputs.version }} (builder b3, independent NSIS r1)'
           keep-releases: '3'
           prune: 'false'
           dry-run: 'false'
